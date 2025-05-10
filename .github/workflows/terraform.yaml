@@ -1,0 +1,73 @@
+name: "Vprofile IAC"  # Nome que será exibido no GitHub Actions para esse workflow
+
+# Este arquivo define um pipeline para GitHub Actions
+on:
+  # Define os gatilhos que iniciam o workflow
+  push:                 # Dispara quando houver um push para os branches abaixo
+    branches:
+      - main            # No branch main
+      - stage           # Ou no branch stage
+    paths:
+      - terraform/**    # Apenas se o push modificar algo dentro do diretório terraform/
+  pull_request:         # Dispara quando for aberto um pull request com destino ao main
+    branches:
+      - main
+    paths:
+      - terraform/**
+
+# Variáveis de ambiente que estarão disponíveis em todos os steps do job
+env:
+  # Credenciais da AWS armazenadas nos GitHub Secrets
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  BUCKET_TF_STATE: ${{ secrets.BUCKET_TF_STATE }}   # Nome do bucket S3 para o backend do Terraform
+  AWS_REGION: us-east-1                             # Região padrão usada pelo Terraform/AWS CLI
+  EKS_CLUSTER: vprofile-eks                         # Nome do cluster EKS, se usado em steps futuros
+
+jobs:
+  terraform:  # Nome interno do job
+    name: "Apply terraform code changes"  # Nome exibido na interface do GitHub
+    runs-on: ubuntu-latest                # Define o runner que será usado (máquina Ubuntu mais recente)
+    
+    defaults:
+      run:
+        shell: bash                       # Usa bash como interpretador de comandos
+        working-directory: ./terraform   # Define a pasta padrão onde os comandos serão executados
+
+    steps:  # Lista de steps do job
+      - name: Checkout source code 
+        uses: actions/checkout@v4        # Clona o código do repositório no runner (obrigatório para qualquer pipeline)
+
+      - name: Setup Terraform with specified version on the runner
+        uses: hashicorp/setup-terraform@v2  # Instala o Terraform no runner
+        # Se quiser travar a versão, descomente abaixo:
+        # with:
+        #   terraform_version: 1.6.3
+
+      - name: Terraform init
+        id: init
+        run: terraform init -backend-config="bucket=$BUCKET_TF_STATE"
+        # Inicializa o Terraform e configura o backend remoto usando o bucket S3
+        # Sempre que um step tem a diretiva run, ele executa um ou mais comandos de terminal (shell) diretamente no runner
+
+      - name: Terraform format
+        id: fmt
+        run: terraform fmt -check
+        # Verifica se os arquivos estão formatados corretamente (não corrige automaticamente)
+
+      - name: Terraform validate
+        id: validate
+        run: terraform validate
+        # Valida a configuração do Terraform (sintaxe, recursos, dependências)
+
+      - name: Terraform plan
+        id: plan
+        run: terraform plan -no-color -input=false -out planfile
+        continue-on-error: true
+        # Gera o plano de execução do Terraform, mas não aplica
+        # Se falhar, o pipeline continua (para poder capturar a falha no próximo step)
+
+      - name: Terraform plan status
+        if: steps.plan.outcome == 'failure' # Verifica se o step anterior falhou
+        run: exit 1 # Força o job a falhar
+        # Se o step anterior (plan) falhou, este step força o job a falhar

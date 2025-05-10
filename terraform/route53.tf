@@ -1,6 +1,6 @@
 # Criar a Hosted Zone pública
 resource "aws_route53_zone" "douglasaguirre" {
-  name = "douglasaguirre.com"
+  name    = "douglasaguirre.com"
   comment = "Public hosted zone for douglasaguirre.com"
 }
 
